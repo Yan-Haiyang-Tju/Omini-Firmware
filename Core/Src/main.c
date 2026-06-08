@@ -319,6 +319,8 @@ int main(void)
 
 
     /* ─── CAN 模式切换 (消除竞态: 主循环统一写) ─── */
+    FOC_UpdateAngle();
+
     if (foc_mode_pending == 1) {
         motor_control_context.type = control_type_torque;
         motor_control_context.torque_norm_q = torque_target;
@@ -588,7 +590,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 400000;
+  hi2c1.Init.ClockSpeed = 100000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
