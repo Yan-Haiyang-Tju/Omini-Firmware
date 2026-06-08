@@ -176,6 +176,7 @@ int main(void)
   USART_SendString(&huart3, "Encoder OK\r\n");
 
   /* ─── 启动 PWM + 速度计算定时器 ─── */
+  FOC_UpdateAngle();
   HAL_TIM_Base_Start_IT(&htim3);
   USART_SendString(&huart3, "TIM3 started\r\n");
 
@@ -271,7 +272,6 @@ int main(void)
       motor_control_context.type = control_type_position;
     }
 
-    FOC_UpdateAngle();
 
     /* ─── CAN 模式切换 (消除竞态: 主循环统一写) ─── */
     if (foc_mode_pending == 1) {

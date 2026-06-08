@@ -8,6 +8,7 @@
 #include "main.h"
 #include "User_AS5600.h"
 #include "User_ADC.h"
+#include "User_System.h"
 #include "foc.h"
 #include "motor_runtime_param.h"
 #include "filter.h"
@@ -24,6 +25,12 @@ static TIM_HandleTypeDef *foc_htim = NULL;
 
 #define FOC_DUTY_MIN    0.0f
 #define FOC_DUTY_MAX    0.9f
+
+static float foc_angle_last_enc = 0.0f;
+static uint8_t foc_angle_once = 1u;
+static uint32_t foc_angle_cache_tick = 0u;
+static float foc_speed_last_enc = 0.0f;
+static uint8_t foc_speed_once = 1u;
 
 /* ———— 全局变量 ———— */
 uint16_t foc_cached_raw = 0;
@@ -60,30 +67,53 @@ void set_pwm_duty(float d_u, float d_v, float d_w)
 
 /* ======================== 编码器 ======================== */
 
+static void FOC_ApplyAngleSample(float new_angle, uint16_t raw)
+{
+    if (foc_angle_once != 0u) {
+        foc_angle_once = 0u;
+        foc_angle_last_enc = new_angle;
+    }
+
+    float diff_angle = cycle_diff(new_angle - foc_angle_last_enc,
+                                  2.0f * PI);
+    foc_angle_last_enc = new_angle;
+    encoder_angle = new_angle;
+    foc_cached_raw = raw;
+    motor_logic_angle = cycle_diff(motor_logic_angle + diff_angle,
+                                   position_cycle);
+}
+
 void FOC_UpdateAngle(void)
 {
     uint16_t raw;
     if (AS5600_ReadRawAngle(&raw) != 0)
         return;
 
-    float new_angle = (float)raw * 2.0f * PI / 4095.0f;
+    FOC_ApplyAngleSample(AS5600_RawToRad(raw), raw);
 
     /* 多圈累积 (照抄教程 SPI 回调) */
-    static float last_enc = 0.0f;
-    static int   once     = 1;
-    if (once) {
-        once = 0;
-        last_enc = new_angle;
-    }
-    float diff_angle = cycle_diff(new_angle - last_enc, 2.0f * PI);
-    last_enc = new_angle;
-    encoder_angle = new_angle;
     foc_cached_raw = raw;  /* 更新缓存 */
-    motor_logic_angle = cycle_diff(motor_logic_angle + diff_angle,
-                                    position_cycle);
 }
 
 /* ======================== 对齐 ======================== */
+
+static int FOC_UpdateAngleFromCache(void)
+{
+    uint16_t raw;
+    uint32_t timestamp_ms;
+
+    if (AS5600_GetCachedRawAngle(&raw, &timestamp_ms) != 0) {
+        return -1;
+    }
+
+    if (timestamp_ms == foc_angle_cache_tick) {
+        return 1;
+    }
+
+    foc_angle_cache_tick = timestamp_ms;
+    FOC_ApplyAngleSample(AS5600_RawToRad(raw), raw);
+    return 0;
+}
 
 void FOC_AlignRotor(void)
 {
@@ -212,18 +242,26 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     if (htim->Instance != TIM3)
         return;
 
-    FOC_UpdateAngle();  /* 每次 TIM3 中断先读编码器, 保证 speed 准确 */
+    AS5600_RequestRawAngleIT();
 
-    static float encoder_angle_last = 0.0f;
-    static int   once               = 1;
-    if (once) {
-        once = 0;
-        encoder_angle_last = encoder_angle;
+    if (AS5600_IsCacheValid(AS5600_CACHE_TIMEOUT_MS) == 0u) {
+        FOC_EmergencyStop();
+        SystemStatus_SetFault(FAULT_AS5600_TIMEOUT);
+        return;
     }
 
-    float diff_angle = cycle_diff(encoder_angle - encoder_angle_last,
+    if (FOC_UpdateAngleFromCache() != 0) {
+        return;
+    }
+
+    if (foc_speed_once != 0u) {
+        foc_speed_once = 0u;
+        foc_speed_last_enc = encoder_angle;
+    }
+
+    float diff_angle = cycle_diff(encoder_angle - foc_speed_last_enc,
                                   2.0f * PI);
-    encoder_angle_last = encoder_angle;
+    foc_speed_last_enc = encoder_angle;
 
     float _motor_speed = diff_angle * (float)motor_speed_calc_freq;
     float filter_alpha = 0.07f;
