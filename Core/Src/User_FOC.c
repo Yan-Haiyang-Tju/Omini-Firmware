@@ -26,12 +26,6 @@ static TIM_HandleTypeDef *foc_htim = NULL;
 #define FOC_DUTY_MIN    0.0f
 #define FOC_DUTY_MAX    0.9f
 #define FOC_ALIGN_DUTY  0.50f
-#define FOC_ALIGN_RAMP_STEPS    10u
-#define FOC_ALIGN_RAMP_STEP_MS  20u
-#define FOC_ALIGN_SETTLE_MS     300u
-#define FOC_ALIGN_SAMPLES       8u
-#define FOC_ALIGN_SAMPLE_MS     5u
-#define FOC_ALIGN_STABLE_RAD    0.05f
 #define FOC_ANGLE_TIMEOUT_LIMIT 5u
 
 static float foc_angle_last_enc = 0.0f;
@@ -141,78 +135,30 @@ void FOC_ResetAngleState(float mechanical_angle, uint16_t raw)
     foc_angle_timeout_count = 0u;
 }
 
-static int FOC_AlignRotorStable(void)
+int FOC_AlignRotor(void)
 {
-    uint16_t raw = 0u;
-    uint16_t last_raw = 0u;
-    float first_angle = 0.0f;
-    float diff_sum = 0.0f;
-    float max_abs_diff = 0.0f;
+    uint16_t raw;
 
     if (foc_htim == NULL) {
         return -1;
     }
 
-    FOC_EmergencyStop();
+    FOC_Disable();
     reset_motor_pid_state();
-    HAL_Delay(5);
+    set_pwm_duty(FOC_ALIGN_DUTY, 0.0f, 0.0f);
 
     FOC_Enable();
-    for (uint32_t i = 1u; i <= FOC_ALIGN_RAMP_STEPS; i++) {
-        float duty = FOC_ALIGN_DUTY * (float)i
-                   / (float)FOC_ALIGN_RAMP_STEPS;
-        set_pwm_duty(duty, 0.0f, 0.0f);
-        HAL_Delay(FOC_ALIGN_RAMP_STEP_MS);
-    }
-
-    HAL_Delay(FOC_ALIGN_SETTLE_MS);
+    HAL_Delay(400);
 
     if (AS5600_ReadRawAngle(&raw) != 0) {
-        FOC_EmergencyStop();
+        FOC_Disable();
         return -2;
     }
 
-    last_raw = raw;
-    first_angle = AS5600_RawToRad(raw);
-
-    for (uint32_t i = 1u; i < FOC_ALIGN_SAMPLES; i++) {
-        float angle;
-        float diff;
-
-        HAL_Delay(FOC_ALIGN_SAMPLE_MS);
-        if (AS5600_ReadRawAngle(&raw) != 0) {
-            FOC_EmergencyStop();
-            return -2;
-        }
-
-        last_raw = raw;
-        angle = AS5600_RawToRad(raw);
-        diff = cycle_diff(angle - first_angle, 2.0f * PI);
-        diff_sum += diff;
-        if (fabsf(diff) > max_abs_diff) {
-            max_abs_diff = fabsf(diff);
-        }
-    }
-
-    FOC_EmergencyStop();
-
-    if (max_abs_diff > FOC_ALIGN_STABLE_RAD) {
-        return -3;
-    }
-
-    FOC_ResetAngleState(first_angle + diff_sum / (float)FOC_ALIGN_SAMPLES,
-                        last_raw);
+    FOC_ResetAngleState(AS5600_RawToRad(raw), raw);
     reset_motor_pid_state();
+    FOC_Disable();
     return 0;
-}
-
-int FOC_AlignRotor(void)
-{
-    return FOC_AlignRotorStable();
-
-
-
-    /* 读编码器, 记录零位 */
 }
 
 /* ======================== 使能 ======================== */

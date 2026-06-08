@@ -226,14 +226,6 @@ int main(void)
   USART_Printf(&huart3, "ADC zero: ia=%u ib=%u\r\n",
                adc_zero_ia, adc_zero_ib);
 
-  /* ─── 转子零位校准 ─── */
-  SystemStatus_SetState(SYS_STATE_ALIGN);
-  if (FOC_AlignRotor() != 0) {
-    Startup_EnterFault(FAULT_ALIGN, "Align failed!\r\n");
-  }
-  USART_Printf(&huart3, "Align OK: zero=%ddeg\r\n",
-               (int)rad2deg(rotor_zero_angle));
-
   FOC_UpdateAngle();
   HAL_TIM_Base_Start_IT(&htim3);
   USART_SendString(&huart3, "TIM3 started\r\n");
@@ -248,6 +240,14 @@ int main(void)
     Startup_EnterFault(FAULT_ADC_CALIB, "ADC IT no trigger!\r\n");
   }
   USART_SendString(&huart3, "ADC IT started\r\n");
+
+  /* ─── 转子零位校准 ─── */
+  SystemStatus_SetState(SYS_STATE_ALIGN);
+  if (FOC_AlignRotor() != 0) {
+    Startup_EnterFault(FAULT_ALIGN, "Align failed!\r\n");
+  }
+  USART_Printf(&huart3, "Align OK: zero=%ddeg\r\n",
+               (int)rad2deg(rotor_zero_angle));
 
   /* ─── 默认速度/电流限幅 ─── */
   motor_control_context.max_speed       = 22.0f;
