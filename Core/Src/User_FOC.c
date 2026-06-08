@@ -21,25 +21,40 @@ extern TIM_HandleTypeDef  htim1;
 /* ———— 私有变量 ———— */
 static TIM_HandleTypeDef *foc_htim = NULL;
 
+#define FOC_DUTY_MIN    0.0f
+#define FOC_DUTY_MAX    0.9f
+
 /* ———— 全局变量 ———— */
 uint16_t foc_cached_raw = 0;
 int8_t   rotor_dir      = 1;
 
 /* ======================== PWM 写 (照抄教程) ======================== */
 
+static uint16_t duty_to_compare(float duty)
+{
+    if (!(duty >= FOC_DUTY_MIN)) {
+        duty = FOC_DUTY_MIN;
+    } else if (duty > FOC_DUTY_MAX) {
+        duty = FOC_DUTY_MAX;
+    }
+
+    return (uint16_t)(duty * (float)foc_htim->Instance->ARR);
+}
+
 void set_pwm_duty(float d_u, float d_v, float d_w)
 {
-    d_u = min(d_u, 0.9f);
-    d_v = min(d_v, 0.9f);
-    d_w = min(d_w, 0.9f);
+    if (foc_htim == NULL) {
+        return;
+    }
+
+    uint32_t primask = __get_PRIMASK();
     __disable_irq();
-    __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_1,
-                          (uint16_t)(d_u * (float)foc_htim->Instance->ARR));
-    __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_2,
-                          (uint16_t)(d_v * (float)foc_htim->Instance->ARR));
-    __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_3,
-                          (uint16_t)(d_w * (float)foc_htim->Instance->ARR));
-    __enable_irq();
+    __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_1, duty_to_compare(d_u));
+    __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_2, duty_to_compare(d_v));
+    __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_3, duty_to_compare(d_w));
+    if (primask == 0u) {
+        __enable_irq();
+    }
 }
 
 /* ======================== 编码器 ======================== */
