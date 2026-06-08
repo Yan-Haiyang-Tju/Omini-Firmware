@@ -26,14 +26,11 @@ static TIM_HandleTypeDef *foc_htim = NULL;
 #define FOC_DUTY_MIN    0.0f
 #define FOC_DUTY_MAX    0.9f
 #define FOC_ALIGN_DUTY  0.50f
-#define FOC_ANGLE_TIMEOUT_LIMIT 5u
 
 static float foc_angle_last_enc = 0.0f;
 static uint8_t foc_angle_once = 1u;
-static uint32_t foc_angle_cache_tick = 0u;
 static float foc_speed_last_enc = 0.0f;
 static uint8_t foc_speed_once = 1u;
-static uint8_t foc_angle_timeout_count = 0u;
 
 /* ———— 全局变量 ———— */
 uint16_t foc_cached_raw = 0;
@@ -101,24 +98,6 @@ void FOC_UpdateAngle(void)
 
 /* ======================== 对齐 ======================== */
 
-static int FOC_UpdateAngleFromCache(void)
-{
-    uint16_t raw;
-    uint32_t timestamp_ms;
-
-    if (AS5600_GetCachedRawAngle(&raw, &timestamp_ms) != 0) {
-        return -1;
-    }
-
-    if (timestamp_ms == foc_angle_cache_tick) {
-        return 1;
-    }
-
-    foc_angle_cache_tick = timestamp_ms;
-    FOC_ApplyAngleSample(AS5600_RawToRad(raw), raw);
-    return 0;
-}
-
 void FOC_ResetAngleState(float mechanical_angle, uint16_t raw)
 {
     encoder_angle = mechanical_angle;
@@ -131,8 +110,6 @@ void FOC_ResetAngleState(float mechanical_angle, uint16_t raw)
     foc_angle_once = 0u;
     foc_speed_last_enc = mechanical_angle;
     foc_speed_once = 0u;
-    foc_angle_cache_tick = 0u;
-    foc_angle_timeout_count = 0u;
 }
 
 int FOC_AlignRotor(void)
@@ -263,23 +240,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     if (htim->Instance != TIM3)
         return;
 
-    AS5600_RequestRawAngleIT();
-
-    if (AS5600_IsCacheValid(AS5600_CACHE_TIMEOUT_MS) == 0u) {
-        if (foc_angle_timeout_count < FOC_ANGLE_TIMEOUT_LIMIT) {
-            foc_angle_timeout_count++;
-        }
-        if (foc_angle_timeout_count >= FOC_ANGLE_TIMEOUT_LIMIT) {
-            FOC_EmergencyStop();
-            SystemStatus_SetFault(FAULT_AS5600_TIMEOUT);
-        }
-        return;
-    }
-    foc_angle_timeout_count = 0u;
-
-    if (FOC_UpdateAngleFromCache() != 0) {
-        return;
-    }
+    FOC_UpdateAngle();
 
     if (foc_speed_once != 0u) {
         foc_speed_once = 0u;
