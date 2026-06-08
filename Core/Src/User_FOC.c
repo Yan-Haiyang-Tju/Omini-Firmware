@@ -32,16 +32,19 @@ static TIM_HandleTypeDef *foc_htim = NULL;
 #define FOC_ALIGN_SAMPLES       8u
 #define FOC_ALIGN_SAMPLE_MS     5u
 #define FOC_ALIGN_STABLE_RAD    0.05f
+#define FOC_ANGLE_TIMEOUT_LIMIT 5u
 
 static float foc_angle_last_enc = 0.0f;
 static uint8_t foc_angle_once = 1u;
 static uint32_t foc_angle_cache_tick = 0u;
 static float foc_speed_last_enc = 0.0f;
 static uint8_t foc_speed_once = 1u;
+static uint8_t foc_angle_timeout_count = 0u;
 
 /* ———— 全局变量 ———— */
 uint16_t foc_cached_raw = 0;
 int8_t   rotor_dir      = 1;
+volatile uint32_t foc_adc_loop_count = 0u;
 
 /* ======================== PWM 写 (照抄教程) ======================== */
 
@@ -135,6 +138,7 @@ void FOC_ResetAngleState(float mechanical_angle, uint16_t raw)
     foc_speed_last_enc = mechanical_angle;
     foc_speed_once = 0u;
     foc_angle_cache_tick = 0u;
+    foc_angle_timeout_count = 0u;
 }
 
 static int FOC_AlignRotorStable(void)
@@ -250,6 +254,8 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
     if (hadc->Instance != ADC1)
         return;
 
+    foc_adc_loop_count++;
+
     /* 1. 读电流 */
     uint16_t adc_ia = (uint16_t)HAL_ADCEx_InjectedGetValue(&hadc1,
                                                            ADC_INJECTED_RANK_1);
@@ -314,10 +320,16 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     AS5600_RequestRawAngleIT();
 
     if (AS5600_IsCacheValid(AS5600_CACHE_TIMEOUT_MS) == 0u) {
-        FOC_EmergencyStop();
-        SystemStatus_SetFault(FAULT_AS5600_TIMEOUT);
+        if (foc_angle_timeout_count < FOC_ANGLE_TIMEOUT_LIMIT) {
+            foc_angle_timeout_count++;
+        }
+        if (foc_angle_timeout_count >= FOC_ANGLE_TIMEOUT_LIMIT) {
+            FOC_EmergencyStop();
+            SystemStatus_SetFault(FAULT_AS5600_TIMEOUT);
+        }
         return;
     }
+    foc_angle_timeout_count = 0u;
 
     if (FOC_UpdateAngleFromCache() != 0) {
         return;

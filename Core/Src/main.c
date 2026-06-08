@@ -118,6 +118,19 @@ static void Startup_EnterFault(fault_code_t fault, const char *message)
   }
 }
 
+static void Startup_DelayWithFaultCheck(uint32_t duration_ms)
+{
+  uint32_t start = HAL_GetTick();
+
+  while ((HAL_GetTick() - start) < duration_ms) {
+    if (SystemStatus_IsFaultActive()) {
+      Startup_EnterFault(SystemStatus_GetFault(), NULL);
+    }
+    SystemStatus_Task();
+    HAL_Delay(10);
+  }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -225,8 +238,15 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim3);
   USART_SendString(&huart3, "TIM3 started\r\n");
 
-  HAL_ADCEx_InjectedStart_IT(&hadc1);
-  HAL_ADCEx_InjectedStart_IT(&hadc2);
+  uint32_t adc_loop_start = foc_adc_loop_count;
+  if (HAL_ADCEx_InjectedStart_IT(&hadc2) != HAL_OK ||
+      HAL_ADCEx_InjectedStart_IT(&hadc1) != HAL_OK) {
+    Startup_EnterFault(FAULT_ADC_CALIB, "ADC IT start failed!\r\n");
+  }
+  HAL_Delay(20);
+  if (foc_adc_loop_count == adc_loop_start) {
+    Startup_EnterFault(FAULT_ADC_CALIB, "ADC IT no trigger!\r\n");
+  }
   USART_SendString(&huart3, "ADC IT started\r\n");
 
   /* ─── 默认速度/电流限幅 ─── */
@@ -234,19 +254,19 @@ int main(void)
   motor_control_context.max_torque_norm = 0.22f;
 
   /* ─── 完全释放转子 ─── */
+  motor_control_context.type = control_type_torque;
+  motor_control_context.torque_norm_q = 0.08f * (float)gripper_dir;
   set_pwm_duty(0.0f, 0.0f, 0.0f);
   FOC_Enable();
 
   /* ─── 夹爪闭合校准: 力矩推到底 → 释放 → 再记零点 ─── */
   SystemStatus_SetState(SYS_STATE_HOME);
   USART_SendString(&huart3, "Gripper calib: closing 2s...\r\n");
-  motor_control_context.type = control_type_torque;
-  motor_control_context.torque_norm_q = 0.08f * (float)gripper_dir;
-  HAL_Delay(3000);                                     /* 慢推 2 秒 */
+  Startup_DelayWithFaultCheck(3000);                  /* 慢推 2 秒 */
 
   motor_control_context.torque_norm_q = 0.0f;          /* 先释放 */
   USART_SendString(&huart3, "Release, waiting...\r\n");
-  HAL_Delay(500);                                      /* 等惯性停住 */
+  Startup_DelayWithFaultCheck(500);                   /* 等惯性停住 */
 
   /* 记录夹爪零位 */
   gripper_zero_raw   = foc_cached_raw;

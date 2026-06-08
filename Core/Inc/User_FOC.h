@@ -9,6 +9,7 @@
 
 extern int8_t   rotor_dir;
 extern uint16_t foc_cached_raw;
+extern volatile uint32_t foc_adc_loop_count;
 
 void FOC_Init(TIM_HandleTypeDef *htim);
 void FOC_Enable(void);
