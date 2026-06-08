@@ -1,0 +1,66 @@
+# Build outputs
+build/
+Debug/
+Release/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+*.elf
+*.bin
+*.hex
+*.map
+*.o
+*.obj
+*.a
+*.lib
+*.exe
+*.out
+
+# STM32CubeIDE / Eclipse generated
+.metadata/
+.settings/
+.cproject
+.project
+*.launch
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/c_cpp_properties.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# CMake generated
+CMakeUserPresets.json
+compile_commands.json
+
+# Temp
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+# Ignore unnecessary CMSIS-DSP examples/tests
+Drivers/CMSIS/DSP/DSP_Lib_TestSuite/
+Drivers/CMSIS/DSP/Examples/
+Drivers/CMSIS/DSP/Testing/
+Drivers/CMSIS/DSP/Documentation/
+Drivers/CMSIS/DSP/RefLibs/
+Drivers/CMSIS/DSP/Source/
+Drivers/CMSIS/DSP/Include/
+Drivers/CMSIS/NN/
+Drivers/CMSIS/RTOS/
+Drivers/CMSIS/RTOS2/
+Drivers/CMSIS/Core/
+Drivers/CMSIS/Core_A/
+Drivers/CMSIS/Core/Template/
+Drivers/CMSIS/docs/
+Drivers/CMSIS/Device/ST/STM32F1xx/Source/Templates/
+
+# Keep the prebuilt DSP library required by cmake/stm32cubemx/CMakeLists.txt
+!Middlewares/ST/ARM/DSP/Lib/
+!Middlewares/ST/ARM/DSP/Lib/libarm_cortexM3l_math.a
+
+# Local / temporary folders
+Background1
+FOR_AI/
