@@ -5,6 +5,7 @@
  * @date    2026-05-04
  */
 #include "User_AS5600.h"
+#include "global_def.h"
 
 /* ======================== 私有变量 ======================== */
 
@@ -13,6 +14,14 @@ static I2C_HandleTypeDef *as5600_i2c_handle = NULL;
 
 /** @brief 设备是否已成功初始化的标志 */
 static uint8_t as5600_is_init = 0;
+
+static uint8_t as5600_it_buf[2] = {0};
+static volatile uint8_t as5600_it_busy = 0;
+static volatile uint8_t as5600_cache_valid = 0;
+static volatile uint16_t as5600_cached_raw = 0;
+static volatile float as5600_cached_rad = 0.0f;
+static volatile uint32_t as5600_cache_tick = 0;
+static volatile uint32_t as5600_error_count = 0;
 
 /* ======================== 私有函数声明 ======================== */
 
@@ -24,6 +33,7 @@ static uint8_t as5600_is_init = 0;
  * @retval -1: I2C 通信失败
  */
 static int AS5600_Read16(uint8_t reg_addr, uint16_t *value);
+static void AS5600_UpdateCache(uint16_t raw);
 
 /* ======================== 私有函数实现 ======================== */
 
@@ -55,6 +65,20 @@ static int AS5600_Read16(uint8_t reg_addr, uint16_t *value)
     return 0;
 }
 
+float AS5600_RawToRad(uint16_t raw)
+{
+    return (float)(raw & 0x0FFFu) * 2.0f * PI
+         / (float)(AS5600_RESOLUTION - 1u);
+}
+
+static void AS5600_UpdateCache(uint16_t raw)
+{
+    as5600_cached_raw = raw & 0x0FFFu;
+    as5600_cached_rad = AS5600_RawToRad(as5600_cached_raw);
+    as5600_cache_tick = HAL_GetTick();
+    as5600_cache_valid = 1u;
+}
+
 /* ======================== 公共函数实现 ======================== */
 
 int AS5600_Init(I2C_HandleTypeDef *hi2c)
@@ -67,6 +91,7 @@ int AS5600_Init(I2C_HandleTypeDef *hi2c)
     }
 
     as5600_i2c_handle = hi2c;
+    AS5600_ClearCache();
 
     /* 尝试读取状态寄存器, 确认设备在线 */
     if (AS5600_GetStatus(&status) != 0) {
@@ -75,6 +100,101 @@ int AS5600_Init(I2C_HandleTypeDef *hi2c)
     }
 
     as5600_is_init = 1;
+    return 0;
+}
+
+void AS5600_ClearCache(void)
+{
+    as5600_it_busy = 0u;
+    as5600_cache_valid = 0u;
+    as5600_cached_raw = 0u;
+    as5600_cached_rad = 0.0f;
+    as5600_cache_tick = 0u;
+    as5600_error_count = 0u;
+}
+
+int AS5600_RequestRawAngleIT(void)
+{
+    HAL_StatusTypeDef ret;
+
+    if (as5600_is_init == 0 || as5600_i2c_handle == NULL) {
+        return -1;
+    }
+
+    if (as5600_it_busy != 0u ||
+        HAL_I2C_GetState(as5600_i2c_handle) != HAL_I2C_STATE_READY) {
+        return 1;
+    }
+
+    as5600_it_busy = 1u;
+    ret = HAL_I2C_Mem_Read_IT(as5600_i2c_handle,
+                              AS5600_I2C_ADDR,
+                              AS5600_REG_RAW_ANGLE,
+                              I2C_MEMADD_SIZE_8BIT,
+                              as5600_it_buf,
+                              2);
+    if (ret != HAL_OK) {
+        as5600_it_busy = 0u;
+        as5600_error_count++;
+        return -2;
+    }
+
+    return 0;
+}
+
+uint8_t AS5600_IsBusy(void)
+{
+    return as5600_it_busy;
+}
+
+uint8_t AS5600_IsCacheValid(uint32_t max_age_ms)
+{
+    if (as5600_cache_valid == 0u) {
+        return 0u;
+    }
+
+    return ((HAL_GetTick() - as5600_cache_tick) <= max_age_ms) ? 1u : 0u;
+}
+
+int AS5600_GetCachedRawAngle(uint16_t *angle, uint32_t *timestamp_ms)
+{
+    uint32_t primask;
+
+    if (angle == NULL || as5600_cache_valid == 0u) {
+        return -1;
+    }
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    *angle = as5600_cached_raw;
+    if (timestamp_ms != NULL) {
+        *timestamp_ms = as5600_cache_tick;
+    }
+    if (primask == 0u) {
+        __enable_irq();
+    }
+
+    return 0;
+}
+
+int AS5600_GetCachedAngleRad(float *angle_rad, uint32_t *timestamp_ms)
+{
+    uint32_t primask;
+
+    if (angle_rad == NULL || as5600_cache_valid == 0u) {
+        return -1;
+    }
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    *angle_rad = as5600_cached_rad;
+    if (timestamp_ms != NULL) {
+        *timestamp_ms = as5600_cache_tick;
+    }
+    if (primask == 0u) {
+        __enable_irq();
+    }
+
     return 0;
 }
 
@@ -88,7 +208,12 @@ int AS5600_ReadRawAngle(uint16_t *angle)
         return -1;
     }
 
-    return AS5600_Read16(AS5600_REG_RAW_ANGLE, angle);
+    if (AS5600_Read16(AS5600_REG_RAW_ANGLE, angle) != 0) {
+        return -1;
+    }
+    *angle &= 0x0FFFu;
+    AS5600_UpdateCache(*angle);
+    return 0;
 }
 
 int AS5600_ReadAngle(uint16_t *angle)
@@ -101,7 +226,11 @@ int AS5600_ReadAngle(uint16_t *angle)
         return -1;
     }
 
-    return AS5600_Read16(AS5600_REG_ANGLE, angle);
+    if (AS5600_Read16(AS5600_REG_ANGLE, angle) != 0) {
+        return -1;
+    }
+    *angle &= 0x0FFFu;
+    return 0;
 }
 
 int AS5600_GetStatus(uint8_t *status)
@@ -149,4 +278,27 @@ int AS5600_IsMagnetDetected(uint8_t *detected)
 
     *detected = (status & AS5600_STATUS_MD) ? 1 : 0;
     return 0;
+}
+
+void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c)
+{
+    uint16_t raw;
+
+    if (hi2c != as5600_i2c_handle) {
+        return;
+    }
+
+    raw = ((uint16_t)as5600_it_buf[0] << 8) | as5600_it_buf[1];
+    AS5600_UpdateCache(raw);
+    as5600_it_busy = 0u;
+}
+
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
+{
+    if (hi2c != as5600_i2c_handle) {
+        return;
+    }
+
+    as5600_it_busy = 0u;
+    as5600_error_count++;
 }

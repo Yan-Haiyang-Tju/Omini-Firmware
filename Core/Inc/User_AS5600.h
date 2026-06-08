@@ -43,6 +43,9 @@ extern "C" {
 /** @brief I2C 通信超时 (ms) */
 #define AS5600_I2C_TIMEOUT       10
 
+/** @brief Default cache timeout for control loop angle use (ms). */
+#define AS5600_CACHE_TIMEOUT_MS  3u
+
 /* ======================== 函数声明 ======================== */
 
 /**
@@ -53,6 +56,14 @@ extern "C" {
  * @retval -2: I2C 设备无应答
  */
 int AS5600_Init(I2C_HandleTypeDef *hi2c);
+
+float AS5600_RawToRad(uint16_t raw);
+void AS5600_ClearCache(void);
+int AS5600_RequestRawAngleIT(void);
+uint8_t AS5600_IsBusy(void);
+uint8_t AS5600_IsCacheValid(uint32_t max_age_ms);
+int AS5600_GetCachedRawAngle(uint16_t *angle, uint32_t *timestamp_ms);
+int AS5600_GetCachedAngleRad(float *angle_rad, uint32_t *timestamp_ms);
 
 /**
  * @brief  读取原始角度 (RAW_ANGLE, 0x0C)
