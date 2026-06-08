@@ -104,6 +104,20 @@ static void MX_TIM3_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+static void Startup_EnterFault(fault_code_t fault, const char *message)
+{
+  FOC_EmergencyStop();
+  SystemStatus_SetFault(fault);
+  if (message != NULL) {
+    USART_SendString(&huart3, message);
+  }
+
+  while (1) {
+    SystemStatus_Task();
+    HAL_Delay(10);
+  }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -148,17 +162,25 @@ int main(void)
   SystemStatus_SetState(SYS_STATE_INIT);
 
   /* 初始化 AS5600 */
+  SystemStatus_SetState(SYS_STATE_SENSOR_CHECK);
   if (AS5600_Init(&hi2c1) != 0) {
-    USART_SendString(&huart3, "AS5600 Init Failed!\r\n");
-  } else {
-    USART_SendString(&huart3, "AS5600 Init OK\r\n");
+    Startup_EnterFault(FAULT_AS5600_INIT, "AS5600 Init Failed!\r\n");
   }
+  {
+    uint8_t magnet_detected = 0u;
+    if (AS5600_IsMagnetDetected(&magnet_detected) != 0 ||
+        magnet_detected == 0u) {
+      Startup_EnterFault(FAULT_AS5600_INIT, "AS5600 magnet failed!\r\n");
+    }
+  }
+  USART_SendString(&huart3, "AS5600 Init OK\r\n");
 
   /* ─── CAN 初始化 ─── */
   CAN_Init(&hcan);
   USART_SendString(&huart3, "CAN Init OK\r\n");
 
   /* ─── FOC 初始化 ─── */
+  SystemStatus_SetState(SYS_STATE_INIT);
   FOC_Init(&htim1);
   USART_SendString(&huart3, "PWM started\r\n");
 
@@ -180,32 +202,21 @@ int main(void)
   /* ─── ADC 校准 + 启动注入转换 ─── */
   SystemStatus_SetState(SYS_STATE_ADC_CALIB);
   FOC_EmergencyStop();
-  HAL_ADCEx_Calibration_Start(&hadc1);
-  HAL_ADCEx_Calibration_Start(&hadc2);
-  ADC_Init(&hadc1, &hadc2);
+  if (HAL_ADCEx_Calibration_Start(&hadc1) != HAL_OK ||
+      HAL_ADCEx_Calibration_Start(&hadc2) != HAL_OK ||
+      ADC_Init(&hadc1, &hadc2) != 0) {
+    Startup_EnterFault(FAULT_ADC_CALIB, "ADC hardware calib failed!\r\n");
+  }
   if (ADC_Calibrate() != 0) {
-    USART_SendString(&huart3, "ADC offset calib failed!\r\n");
-    SystemStatus_SetFault(FAULT_ADC_CALIB);
-    while (1) {
-      SystemStatus_Task();
-      HAL_Delay(10);
-    }
+    Startup_EnterFault(FAULT_ADC_CALIB, "ADC offset calib failed!\r\n");
   }
   USART_Printf(&huart3, "ADC zero: ia=%u ib=%u\r\n",
                adc_zero_ia, adc_zero_ib);
-  HAL_ADCEx_InjectedStart_IT(&hadc1);
-  HAL_ADCEx_InjectedStart_IT(&hadc2);
-  USART_SendString(&huart3, "ADC IT started\r\n");
 
   /* ─── 转子零位校准 ─── */
   SystemStatus_SetState(SYS_STATE_ALIGN);
   if (FOC_AlignRotor() != 0) {
-    USART_SendString(&huart3, "Align failed!\r\n");
-    SystemStatus_SetFault(FAULT_ALIGN);
-    while (1) {
-      SystemStatus_Task();
-      HAL_Delay(10);
-    }
+    Startup_EnterFault(FAULT_ALIGN, "Align failed!\r\n");
   }
   USART_Printf(&huart3, "Align OK: zero=%ddeg\r\n",
                (int)rad2deg(rotor_zero_angle));
@@ -213,6 +224,10 @@ int main(void)
   FOC_UpdateAngle();
   HAL_TIM_Base_Start_IT(&htim3);
   USART_SendString(&huart3, "TIM3 started\r\n");
+
+  HAL_ADCEx_InjectedStart_IT(&hadc1);
+  HAL_ADCEx_InjectedStart_IT(&hadc2);
+  USART_SendString(&huart3, "ADC IT started\r\n");
 
   /* ─── 默认速度/电流限幅 ─── */
   motor_control_context.max_speed       = 22.0f;
@@ -223,6 +238,7 @@ int main(void)
   FOC_Enable();
 
   /* ─── 夹爪闭合校准: 力矩推到底 → 释放 → 再记零点 ─── */
+  SystemStatus_SetState(SYS_STATE_HOME);
   USART_SendString(&huart3, "Gripper calib: closing 2s...\r\n");
   motor_control_context.type = control_type_torque;
   motor_control_context.torque_norm_q = 0.08f * (float)gripper_dir;
