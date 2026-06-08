@@ -38,7 +38,6 @@ int ADC_Calibrate(void)
 {
     uint32_t sum_ia = 0;
     uint32_t sum_ib = 0;
-    uint32_t tick;
     int i;
 
     if (adc_is_init == 0) {
@@ -49,24 +48,33 @@ int ADC_Calibrate(void)
        常规组与注入组共存, 互不冲突, 绕开 HAL 状态机限制 */
     for (i = 0; i < ADC_CALIBRATE_SAMPLES; i++) {
         /* ADC1 常规组软件触发 */
-        SET_BIT(adc1_handle->Instance->CR2, ADC_CR2_SWSTART);
-        tick = HAL_GetTick();
-        while (!(adc1_handle->Instance->SR & ADC_SR_EOC)) {
-            if (HAL_GetTick() - tick > ADC_READ_TIMEOUT) {
-                return -1;
-            }
+        __HAL_ADC_CLEAR_FLAG(adc1_handle, ADC_FLAG_JEOC);
+        __HAL_ADC_CLEAR_FLAG(adc2_handle, ADC_FLAG_JEOC);
+
+        if (HAL_ADCEx_InjectedStart(adc2_handle) != HAL_OK) {
+            return -2;
         }
-        sum_ia += adc1_handle->Instance->DR;
+        if (HAL_ADCEx_InjectedStart(adc1_handle) != HAL_OK) {
+            HAL_ADCEx_InjectedStop(adc2_handle);
+            return -3;
+        }
+
+        if (HAL_ADCEx_InjectedPollForConversion(adc1_handle,
+                                                ADC_READ_TIMEOUT) != HAL_OK) {
+            HAL_ADCEx_InjectedStop(adc1_handle);
+            HAL_ADCEx_InjectedStop(adc2_handle);
+            return -4;
+        }
+
+        sum_ia += HAL_ADCEx_InjectedGetValue(adc1_handle,
+                                             ADC_INJECTED_RANK_1);
 
         /* ADC2 常规组软件触发 */
-        SET_BIT(adc2_handle->Instance->CR2, ADC_CR2_SWSTART);
-        tick = HAL_GetTick();
-        while (!(adc2_handle->Instance->SR & ADC_SR_EOC)) {
-            if (HAL_GetTick() - tick > ADC_READ_TIMEOUT) {
-                return -1;
-            }
-        }
-        sum_ib += adc2_handle->Instance->DR;
+        sum_ib += HAL_ADCEx_InjectedGetValue(adc2_handle,
+                                             ADC_INJECTED_RANK_1);
+
+        HAL_ADCEx_InjectedStop(adc1_handle);
+        HAL_ADCEx_InjectedStop(adc2_handle);
 
         HAL_Delay(1);
     }
