@@ -757,6 +757,16 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin != FAULT_Pin) {
+    return;
+  }
+
+  FOC_EmergencyStop();
+  SystemStatus_SetFault(FAULT_DRIVER);
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   if (huart->Instance != USART3) return;

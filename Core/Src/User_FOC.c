@@ -117,6 +117,17 @@ void FOC_Disable(void)
     HAL_GPIO_WritePin(GPIOB, EN1_Pin | EN2_Pin | EN3_Pin, GPIO_PIN_RESET);
 }
 
+void FOC_EmergencyStop(void)
+{
+    if (foc_htim != NULL) {
+        __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_1, 0);
+        __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_2, 0);
+        __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_3, 0);
+    }
+
+    FOC_Disable();
+}
+
 /* ======================== ADC 回调 (FOC 主循环, 照抄教程) ======================== */
 
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
