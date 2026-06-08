@@ -176,9 +176,6 @@ int main(void)
   USART_SendString(&huart3, "Encoder OK\r\n");
 
   /* ─── 启动 PWM + 速度计算定时器 ─── */
-  FOC_UpdateAngle();
-  HAL_TIM_Base_Start_IT(&htim3);
-  USART_SendString(&huart3, "TIM3 started\r\n");
 
   /* ─── ADC 校准 + 启动注入转换 ─── */
   SystemStatus_SetState(SYS_STATE_ADC_CALIB);
@@ -201,9 +198,21 @@ int main(void)
   USART_SendString(&huart3, "ADC IT started\r\n");
 
   /* ─── 转子零位校准 ─── */
-  FOC_AlignRotor();                     /* 内部 Enable→Delay→Read→Disable */
+  SystemStatus_SetState(SYS_STATE_ALIGN);
+  if (FOC_AlignRotor() != 0) {
+    USART_SendString(&huart3, "Align failed!\r\n");
+    SystemStatus_SetFault(FAULT_ALIGN);
+    while (1) {
+      SystemStatus_Task();
+      HAL_Delay(10);
+    }
+  }
   USART_Printf(&huart3, "Align OK: zero=%ddeg\r\n",
                (int)rad2deg(rotor_zero_angle));
+
+  FOC_UpdateAngle();
+  HAL_TIM_Base_Start_IT(&htim3);
+  USART_SendString(&huart3, "TIM3 started\r\n");
 
   /* ─── 默认速度/电流限幅 ─── */
   motor_control_context.max_speed       = 22.0f;

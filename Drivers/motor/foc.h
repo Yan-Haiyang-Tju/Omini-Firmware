@@ -51,4 +51,6 @@ void  set_motor_pid(
     float torque_d_p, float torque_d_i, float torque_d_d,
     float torque_q_p, float torque_q_i, float torque_q_d);
 
+void reset_motor_pid_state(void);
+
 #endif /* __FOC_H */

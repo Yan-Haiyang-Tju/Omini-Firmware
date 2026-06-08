@@ -209,3 +209,11 @@ void set_motor_pid(
     arm_pid_init_f32(&pid_torque_d,  false);
     arm_pid_init_f32(&pid_torque_q,  false);
 }
+
+void reset_motor_pid_state(void)
+{
+    arm_pid_reset_f32(&pid_position);
+    arm_pid_reset_f32(&pid_speed);
+    arm_pid_reset_f32(&pid_torque_d);
+    arm_pid_reset_f32(&pid_torque_q);
+}

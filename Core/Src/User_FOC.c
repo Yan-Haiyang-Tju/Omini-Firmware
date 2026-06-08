@@ -25,6 +25,13 @@ static TIM_HandleTypeDef *foc_htim = NULL;
 
 #define FOC_DUTY_MIN    0.0f
 #define FOC_DUTY_MAX    0.9f
+#define FOC_ALIGN_DUTY  0.50f
+#define FOC_ALIGN_RAMP_STEPS    10u
+#define FOC_ALIGN_RAMP_STEP_MS  20u
+#define FOC_ALIGN_SETTLE_MS     300u
+#define FOC_ALIGN_SAMPLES       8u
+#define FOC_ALIGN_SAMPLE_MS     5u
+#define FOC_ALIGN_STABLE_RAD    0.05f
 
 static float foc_angle_last_enc = 0.0f;
 static uint8_t foc_angle_once = 1u;
@@ -115,31 +122,93 @@ static int FOC_UpdateAngleFromCache(void)
     return 0;
 }
 
-void FOC_AlignRotor(void)
+void FOC_ResetAngleState(float mechanical_angle, uint16_t raw)
 {
-    uint16_t raw;
+    encoder_angle = mechanical_angle;
+    rotor_zero_angle = mechanical_angle;
+    motor_logic_angle = 0.0f;
+    motor_speed = 0.0f;
+    foc_cached_raw = raw & 0x0FFFu;
 
-    FOC_Disable();
+    foc_angle_last_enc = mechanical_angle;
+    foc_angle_once = 0u;
+    foc_speed_last_enc = mechanical_angle;
+    foc_speed_once = 0u;
+    foc_angle_cache_tick = 0u;
+}
 
-    /* 基础矢量1: 直写 CCR 绕开限幅 */
-    __disable_irq();
-    __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_1,
-                          (uint16_t)(0.5f * (float)foc_htim->Instance->ARR));
-    __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_2, 0);
-    __HAL_TIM_SET_COMPARE(foc_htim, TIM_CHANNEL_3, 0);
-    __enable_irq();
+static int FOC_AlignRotorStable(void)
+{
+    uint16_t raw = 0u;
+    uint16_t last_raw = 0u;
+    float first_angle = 0.0f;
+    float diff_sum = 0.0f;
+    float max_abs_diff = 0.0f;
 
-    FOC_Enable();
-    HAL_Delay(400);
-
-    /* 读编码器, 记录零位 */
-    if (AS5600_ReadRawAngle(&raw) == 0) {
-        encoder_angle      = (float)raw * 2.0f * PI / 4095.0f;
-        rotor_zero_angle   = encoder_angle;
-        motor_logic_angle  = 0.0f;
+    if (foc_htim == NULL) {
+        return -1;
     }
 
-    FOC_Disable();
+    FOC_EmergencyStop();
+    reset_motor_pid_state();
+    HAL_Delay(5);
+
+    FOC_Enable();
+    for (uint32_t i = 1u; i <= FOC_ALIGN_RAMP_STEPS; i++) {
+        float duty = FOC_ALIGN_DUTY * (float)i
+                   / (float)FOC_ALIGN_RAMP_STEPS;
+        set_pwm_duty(duty, 0.0f, 0.0f);
+        HAL_Delay(FOC_ALIGN_RAMP_STEP_MS);
+    }
+
+    HAL_Delay(FOC_ALIGN_SETTLE_MS);
+
+    if (AS5600_ReadRawAngle(&raw) != 0) {
+        FOC_EmergencyStop();
+        return -2;
+    }
+
+    last_raw = raw;
+    first_angle = AS5600_RawToRad(raw);
+
+    for (uint32_t i = 1u; i < FOC_ALIGN_SAMPLES; i++) {
+        float angle;
+        float diff;
+
+        HAL_Delay(FOC_ALIGN_SAMPLE_MS);
+        if (AS5600_ReadRawAngle(&raw) != 0) {
+            FOC_EmergencyStop();
+            return -2;
+        }
+
+        last_raw = raw;
+        angle = AS5600_RawToRad(raw);
+        diff = cycle_diff(angle - first_angle, 2.0f * PI);
+        diff_sum += diff;
+        if (fabsf(diff) > max_abs_diff) {
+            max_abs_diff = fabsf(diff);
+        }
+    }
+
+    FOC_EmergencyStop();
+
+    if (max_abs_diff > FOC_ALIGN_STABLE_RAD) {
+        return -3;
+    }
+
+    FOC_ResetAngleState(first_angle + diff_sum / (float)FOC_ALIGN_SAMPLES,
+                        last_raw);
+    reset_motor_pid_state();
+    return 0;
+}
+
+int FOC_AlignRotor(void)
+{
+    return FOC_AlignRotorStable();
+
+
+
+    /* 读编码器, 记录零位 */
 }
 
 /* ======================== 使能 ======================== */

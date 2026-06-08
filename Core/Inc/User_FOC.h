@@ -14,7 +14,8 @@ void FOC_Init(TIM_HandleTypeDef *htim);
 void FOC_Enable(void);
 void FOC_Disable(void);
 void FOC_EmergencyStop(void);
-void FOC_AlignRotor(void);
+int FOC_AlignRotor(void);
+void FOC_ResetAngleState(float mechanical_angle, uint16_t raw);
 void FOC_UpdateAngle(void);
 void set_pwm_duty(float d_u, float d_v, float d_w);
 
