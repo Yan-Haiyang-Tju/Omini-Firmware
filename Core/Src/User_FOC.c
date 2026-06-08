@@ -7,6 +7,7 @@
 #include "User_FOC.h"
 #include "main.h"
 #include "User_AS5600.h"
+#include "User_ADC.h"
 #include "foc.h"
 #include "motor_runtime_param.h"
 #include "filter.h"
@@ -151,16 +152,13 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
         return;
 
     /* 1. 读电流 */
-    float u_1 = ADC_REFERENCE_VOLT
-        * ((float)HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_1)
-           / ((1 << ADC_BITS) - 1) - 0.5f);
-    float u_2 = ADC_REFERENCE_VOLT
-        * ((float)HAL_ADCEx_InjectedGetValue(&hadc2, ADC_INJECTED_RANK_1)
-           / ((1 << ADC_BITS) - 1) - 0.5f);
-    float i_1 = u_1 / R_SHUNT / OP_GAIN;
-    float i_2 = u_2 / R_SHUNT / OP_GAIN;
-    motor_i_u = i_1;
-    motor_i_v = i_2;
+    uint16_t adc_ia = (uint16_t)HAL_ADCEx_InjectedGetValue(&hadc1,
+                                                           ADC_INJECTED_RANK_1);
+    uint16_t adc_ib = (uint16_t)HAL_ADCEx_InjectedGetValue(&hadc2,
+                                                           ADC_INJECTED_RANK_1);
+
+    motor_i_u = ADC_TO_CURRENT(adc_ia, adc_zero_ia);
+    motor_i_v = ADC_TO_CURRENT(adc_ib, adc_zero_ib);
 
     /* 2. Clarke */
     float i_alpha = 0.0f;

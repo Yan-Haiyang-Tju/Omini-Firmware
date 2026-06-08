@@ -46,6 +46,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # User sources
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/User_AS5600.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/User_ADC.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/User_Usart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/User_FOC.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/User_CAN.c

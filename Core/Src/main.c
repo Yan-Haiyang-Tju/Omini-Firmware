@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "User_AS5600.h"
+#include "User_ADC.h"
 #include "User_Usart.h"
 #include "User_FOC.h"
 #include "User_CAN.h"
@@ -179,8 +180,21 @@ int main(void)
   USART_SendString(&huart3, "TIM3 started\r\n");
 
   /* ─── ADC 校准 + 启动注入转换 ─── */
+  SystemStatus_SetState(SYS_STATE_ADC_CALIB);
+  FOC_EmergencyStop();
   HAL_ADCEx_Calibration_Start(&hadc1);
   HAL_ADCEx_Calibration_Start(&hadc2);
+  ADC_Init(&hadc1, &hadc2);
+  if (ADC_Calibrate() != 0) {
+    USART_SendString(&huart3, "ADC offset calib failed!\r\n");
+    SystemStatus_SetFault(FAULT_ADC_CALIB);
+    while (1) {
+      SystemStatus_Task();
+      HAL_Delay(10);
+    }
+  }
+  USART_Printf(&huart3, "ADC zero: ia=%u ib=%u\r\n",
+               adc_zero_ia, adc_zero_ib);
   HAL_ADCEx_InjectedStart_IT(&hadc1);
   HAL_ADCEx_InjectedStart_IT(&hadc2);
   USART_SendString(&huart3, "ADC IT started\r\n");
