@@ -66,8 +66,13 @@ void Error_Handler(void);
 #define I_B_GPIO_Port GPIOA
 #define TEMP_Pin GPIO_PIN_3
 #define TEMP_GPIO_Port GPIOA
+#define LED_ERROR_Pin GPIO_PIN_13
+#define LED_ERROR_GPIO_Port GPIOB
+#define LED_OK_Pin GPIO_PIN_14
+#define LED_OK_GPIO_Port GPIOB
 #define FAULT_Pin GPIO_PIN_15
 #define FAULT_GPIO_Port GPIOB
+#define FAULT_EXTI_IRQn EXTI15_10_IRQn
 #define IN1_Pin GPIO_PIN_8
 #define IN1_GPIO_Port GPIOA
 #define IN2_Pin GPIO_PIN_9
