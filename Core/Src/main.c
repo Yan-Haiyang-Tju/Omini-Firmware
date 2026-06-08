@@ -27,6 +27,7 @@
 #include "User_Usart.h"
 #include "User_FOC.h"
 #include "User_CAN.h"
+#include "User_System.h"
 #include "motor_runtime_param.h"
 #include "foc.h"
 #include "global_def.h"
@@ -142,6 +143,9 @@ int main(void)
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
+  SystemStatus_Init();
+  SystemStatus_SetState(SYS_STATE_INIT);
+
   /* 初始化 AS5600 */
   if (AS5600_Init(&hi2c1) != 0) {
     USART_SendString(&huart3, "AS5600 Init Failed!\r\n");
@@ -215,6 +219,7 @@ int main(void)
   motor_control_context.position = gripper_zero_logic;
   motor_control_context.type = control_type_position;
   USART_SendString(&huart3, "Position mode ON\r\n");
+  SystemStatus_SetState(SYS_STATE_RUN);
 
   HAL_UART_Receive_IT(&huart3, &rx_byte, 1);
 
@@ -227,6 +232,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+    SystemStatus_Task();
 
     /* ─── 重校准请求 ─── */
     if (gripper_recal) {

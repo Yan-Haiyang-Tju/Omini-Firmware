@@ -49,6 +49,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/User_Usart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/User_FOC.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/User_CAN.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/User_System.c
     ${CMAKE_CURRENT_SOURCE_DIR}/algorithm/filter.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/motor/foc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/motor/motor_runtime_param.c
